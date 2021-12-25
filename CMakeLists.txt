@@ -3,6 +3,8 @@ project(aoc_21)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
+
 add_executable(day_01 01.cpp)
 add_executable(day_02 02.cpp)
 add_executable(day_03 03.cpp)
