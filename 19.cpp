@@ -36,52 +36,31 @@ std::array<T, dimension> operator-(const std::array<T, dimension>& a, const std:
 	return result;
 }
 
-template<typename T, std::size_t dimension_m, std::size_t dimension_n, std::size_t dimension_p>
-std::array<std::array<T, dimension_m>, dimension_n> operator*(const std::array<std::array<T, dimension_p>, dimension_n>& a, const std::array<std::array<T, dimension_m>, dimension_p>& b) {
-	std::array<std::array<T, dimension_m>, dimension_n> res{};
-	for (std::size_t i = 0; i < dimension_n; ++i) {
-		for (std::size_t j = 0; j < dimension_m; ++j) {
-			res[i][j] = 0;
-			for (std::size_t k = 0; k < dimension_p; ++k) {
-				res[i][j] += a[i][k] * b[k][j];
-			}
- 		}
-	}
-
-	return res;
-}
-
-template<typename T, std::size_t dimension_m, std::size_t dimension_n>
-std::array<T, dimension_n> operator*(const std::array<T, dimension_m>& a, const std::array<std::array<T, dimension_n>, dimension_m>& b) {
-	std::array<T, dimension_n> res{};
-	for (std::size_t i = 0; i < dimension_n; ++i) {
-		for (std::size_t j = 0; j < dimension_m; ++j) {
-			res[i] += a[j] * b[j][i];
-		}
-	}
-
-	return res;
-}
-
-std::array<std::array<int, 3>, 3> rotate_matrix_along_first_axis = {{
-	{1, 0, 0},
-	{0, 0, -1},
-	{0, 1, 0},
-}};
-
-std::array<std::array<int, 3>, 3> negate_look_matrix = {{
-	{-1, 0, 0},
-	{0, 0, 1},
-	{0, 1, 0},
-}};
-
-std::array<std::array<int, 3>, 3> shift_axis_matrix = {{
-	{0, 0, 1},
-	{1, 0, 0},
-	{0, 1, 0},
-}};
-
 using V3 = std::array<int, 3>;
+
+void rotate_along_first_axis(V3& v) {
+	std::swap(v[1], v[2]);
+	v[2] *= -1;
+}
+
+void negate_look(V3& v) {
+	std::swap(v[1], v[2]);
+	v[0] *= -1;
+}
+
+void shift_axes(V3& v) {
+	int tmp = v[0];
+	v[0] = v[1];
+	v[1] = v[2];
+	v[2] = tmp;
+}
+
+template<>
+struct std::hash<V3> {
+	std::size_t operator()(const V3& a) const {
+		return (a[0] * 18397) + (a[1] * 20483) + (a[2] * 29303);
+	}
+};
 
 std::optional<V3> match_by_offset(const std::vector<V3>& a, const std::vector<V3>& b, std::size_t target_matching_count = 12) {
 	std::set<V3> tried_offsets;
@@ -94,7 +73,7 @@ std::optional<V3> match_by_offset(const std::vector<V3>& a, const std::vector<V3
 			}
 			std::size_t matched_counter = 0;
 			for (std::size_t k = 0; k < b.size() && b.size() - k + matched_counter >= target_matching_count; ++k) {
-				if (std::find_if(a.begin(), a.end(), [target = b[k] + offset](const V3& i){ return i == target; }) != a.end()) {
+				if (std::binary_search(a.begin(), a.end(), b[k] + offset)) {
 					++matched_counter;
 				}
 			}
@@ -106,12 +85,6 @@ std::optional<V3> match_by_offset(const std::vector<V3>& a, const std::vector<V3
 	return std::nullopt;
 }
 
-void transform_vector(std::vector<V3>& input, const std::array<std::array<int, 3>, 3>& transformation_matrix) {
-	for (V3& x : input) {
-		x = x * transformation_matrix;
-	}
-}
-
 void shift_vector(std::vector<V3>& input, const std::array<int, 3>& shift) {
 	for (V3& x : input) {
 		x += shift;
@@ -120,12 +93,12 @@ void shift_vector(std::vector<V3>& input, const std::array<int, 3>& shift) {
 
 std::optional<std::pair<std::vector<V3>, V3>> find_transformation(const std::vector<V3>& a, const std::vector<V3>& b, std::size_t target_matching_count = 12) {
 	std::vector<V3> transformed_b = b;
-	for (std::size_t axis_selection_count = 0; axis_selection_count < 3; ++axis_selection_count, transform_vector(transformed_b, shift_axis_matrix)) {
-		for (std::size_t rotation_selection_count = 0; rotation_selection_count < 4; ++rotation_selection_count, transform_vector(transformed_b, rotate_matrix_along_first_axis)) {
-			for (std::size_t negated_cnt = 0; negated_cnt < 2; ++negated_cnt, transform_vector(transformed_b, negate_look_matrix)) {
+	for (std::size_t axis_selection_count = 0; axis_selection_count < 3; ++axis_selection_count, std::for_each(transformed_b.begin(), transformed_b.end(), &shift_axes)) {
+		for (std::size_t rotation_selection_count = 0; rotation_selection_count < 4; ++rotation_selection_count, std::for_each(transformed_b.begin(), transformed_b.end(), &rotate_along_first_axis)) {
+			for (std::size_t negated_cnt = 0; negated_cnt < 2; ++negated_cnt, std::for_each(transformed_b.begin(), transformed_b.end(), &negate_look)) {
 				// try to find the offset
 				if (auto opt_res = match_by_offset(a, transformed_b, target_matching_count)) {
-					shift_vector(transformed_b, *opt_res);
+					std::for_each(transformed_b.begin(), transformed_b.end(), [shift = *opt_res](V3& a) { a += shift; });
 					// return the transformed vector
 					return std::make_pair(transformed_b, *opt_res);
 				}
@@ -148,7 +121,7 @@ std::pair<std::set<V3>, std::vector<V3>> get_beacons(const std::vector<std::vect
 	std::vector<std::vector<V3>> transformed_inputs; // transformed scanner inputs to sensor 0 view/space
 	transformed_inputs.reserve(scanner_inputs.size());
 	transformed_inputs.push_back(scanner_inputs[0]);
-
+	std::sort(transformed_inputs.back().begin(), transformed_inputs.back().end());
 
 	std::vector<std::size_t> unmatched_inputs; // still unmatched input indexes
 	unmatched_inputs.reserve(scanner_inputs.size() - 1);
@@ -168,6 +141,7 @@ std::pair<std::set<V3>, std::vector<V3>> get_beacons(const std::vector<std::vect
 					beacons.insert(opt_transformation->first.begin(), opt_transformation->first.end());
 					sensors.push_back(opt_transformation->second);
 					transformed_inputs.push_back(opt_transformation->first);
+					std::sort(transformed_inputs.back().begin(), transformed_inputs.back().end());
 					it = unmatched_inputs.erase(it);
 					break;
 				}
